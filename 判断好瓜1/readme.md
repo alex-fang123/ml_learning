@@ -1,0 +1,1 @@
+一个判断好瓜的线性模型，用的logistic regression
