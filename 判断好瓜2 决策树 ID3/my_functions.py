@@ -67,7 +67,7 @@ def get_the_best_split_feature(data, continuous_feature, kind_tag):
             split_point.iloc[0, i - 1] = None
         else:  # 连续属性值
             [gain.iloc[0, i - 1], split_point.iloc[0, i - 1]] = get_information_gain_continuous(data, kind_tag,
-                                                                                           column_names[i])
+                                                                                                column_names[i])
     split_feature = gain.idxmax("columns").tolist()[0]
     return split_feature, split_point
 
@@ -91,8 +91,31 @@ def GenerateTree(data, kind_tag, continuous_feature):
         for [i, item] in split_data:
             tree[split_feature][i] = GenerateTree(item.drop(split_feature, axis=1), kind_tag, continuous_feature)
     else:
-        tree = {split_feature+"<="+str(split_points[split_feature][0])+"?": {}}
-        tree[split_feature+"<="+str(split_points[split_feature][0])+"?"]["yes"] = GenerateTree(data[data[split_feature] <= split_points[split_feature][0]], kind_tag, continuous_feature)
-        tree[split_feature + "<=" + str(split_points[split_feature][0])+"?"]["no"] = GenerateTree(
+        tree = {split_feature + "<=" + str(split_points[split_feature][0]) + "?": {}}
+        tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["yes"] = GenerateTree(
+            data[data[split_feature] <= split_points[split_feature][0]], kind_tag, continuous_feature)
+        tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = GenerateTree(
             data[data[split_feature] > split_points[split_feature][0]], kind_tag, continuous_feature)
     return tree
+
+
+def classify(DecisionTree, sample):
+    """
+    对样本进行分类
+    :param DecisionTree: 决策树
+    :param sample: 样本
+    :return: 分类结果
+    """
+    if type(DecisionTree) != dict:
+        return DecisionTree
+    else:
+        feature_name = list(DecisionTree.keys())[0]
+        if "<=" in feature_name:
+            feature_value = sample[feature_name.split("<=")[0]]
+            if feature_value <= float(feature_name.split("<=")[1][:-1]):
+                return classify(DecisionTree[feature_name]["yes"], sample)
+            else:
+                return classify(DecisionTree[feature_name]["no"], sample)
+        else:
+            feature_value = sample[feature_name]
+            return classify(DecisionTree[feature_name][feature_value], sample)
