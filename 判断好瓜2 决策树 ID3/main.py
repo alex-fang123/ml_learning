@@ -14,4 +14,4 @@ np.save("my_tree.npy", my_tree)
 
 # 读取决策树
 # my_tree = np.load("my_tree.npy", allow_pickle=True).item()
-print(fc.classify(my_tree, data.iloc[1, :]))
+print(fc.classify(data.iloc[1, :], my_tree))

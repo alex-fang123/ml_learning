@@ -99,7 +99,7 @@ def GenerateTree(data, kind_tag, continuous_feature):
     return tree
 
 
-def classify(DecisionTree, sample):
+def classify(sample, DecisionTree):
     """
     对样本进行分类
     :param DecisionTree: 决策树
