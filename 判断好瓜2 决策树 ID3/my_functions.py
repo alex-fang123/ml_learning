@@ -72,31 +72,71 @@ def get_the_best_split_feature(data, continuous_feature, kind_tag):
     return split_feature, split_point
 
 
-def GenerateTree(data, kind_tag, continuous_feature):
+def GenerateTree(data, kind_tag, continuous_feature, pruning=False, train=None, test=None):
     """
     生成决策树
     :param data: 原数据集
+    :param kind_tag: 标记类别的列
+    :param continuous_feature: 连续属性集合
+    :param pruning: 剪枝类型，False不剪枝，Pre预剪枝，Post后剪枝
     :return: 决策树，是一个嵌套的字典
     """
     if data[kind_tag].nunique() == 1:  # 如果集合中的样例全部属于同一类，如全部为正例或者全部为反例
         return data[kind_tag].unique()[0]
     if data.shape[1] == 2:
         return data[kind_tag].value_counts().idxmax()
-    [split_feature, split_points] = get_the_best_split_feature(data, continuous_feature, kind_tag)
-    if data[split_feature].nunique() == 1:
-        return data[kind_tag].value_counts().idxmax()
-    if split_feature not in continuous_feature:
-        tree = {split_feature: {}}
-        split_data = data.groupby(split_feature)
-        for [i, item] in split_data:
-            tree[split_feature][i] = GenerateTree(item.drop(split_feature, axis=1), kind_tag, continuous_feature)
+    if pruning == "pre":  # 预剪枝
+        [split_feature, split_points] = get_the_best_split_feature(train, continuous_feature, kind_tag)
+        if data[split_feature].nunique() == 1:
+            return data[kind_tag].value_counts().idxmax()
+        test_tag = test[kind_tag].value_counts().idxmax()
+        not_divide_precision = test.groupby(kind_tag).size()[test_tag] / test.shape[0]
+        if split_feature not in continuous_feature:
+            split_regulation = {i: item["好瓜"].value_counts().idxmax() for [i, item] in train.groupby(split_feature)}
+            temp_tree = {split_feature: split_regulation}
+        else:
+            split_regulation = {split_feature + "<=" + str(split_points[split_feature][0]) + "?": {}}
+            split_regulation[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["yes"] = \
+                train[train[split_feature] <= split_points[split_feature][0]]["好瓜"].value_counts().idxmax()
+            split_regulation[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = \
+                train[train[split_feature] > split_points[split_feature][0]]["好瓜"].value_counts().idxmax()
+            temp_tree = split_regulation
+        test_result = test.apply(classify, axis=1, args=(temp_tree,))
+        test_result = pd.concat([test_result, test[kind_tag]], axis=1)
+        test_result['result'] = test_result.apply(lambda x: 1 if x[0] == x[kind_tag] else 0, axis=1)
+        divide_precision = test_result['result'].sum() / test_result.shape[0]
+        if not_divide_precision > divide_precision:
+            return train[kind_tag].value_counts().idxmax()
+        else:
+            if split_feature not in continuous_feature:
+                tree = {split_feature: {}}
+                split_data = train.groupby(split_feature)
+                for [i, item] in split_data:
+                    tree[split_feature][i] = GenerateTree(item.drop(split_feature, axis=1), kind_tag,
+                                                          continuous_feature)
+            else:
+                tree = {split_feature + "<=" + str(split_points[split_feature][0]) + "?": {}}
+                tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["yes"] = GenerateTree(
+                    train[train[split_feature] <= split_points[split_feature][0]], kind_tag, continuous_feature)
+                tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = GenerateTree(
+                    train[train[split_feature] > split_points[split_feature][0]], kind_tag, continuous_feature)
+            return tree
     else:
-        tree = {split_feature + "<=" + str(split_points[split_feature][0]) + "?": {}}
-        tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["yes"] = GenerateTree(
-            data[data[split_feature] <= split_points[split_feature][0]], kind_tag, continuous_feature)
-        tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = GenerateTree(
-            data[data[split_feature] > split_points[split_feature][0]], kind_tag, continuous_feature)
-    return tree
+        [split_feature, split_points] = get_the_best_split_feature(data, continuous_feature, kind_tag)
+        if data[split_feature].nunique() == 1:
+            return data[kind_tag].value_counts().idxmax()
+        if split_feature not in continuous_feature:
+            tree = {split_feature: {}}
+            split_data = data.groupby(split_feature)
+            for [i, item] in split_data:
+                tree[split_feature][i] = GenerateTree(item.drop(split_feature, axis=1), kind_tag, continuous_feature)
+        else:
+            tree = {split_feature + "<=" + str(split_points[split_feature][0]) + "?": {}}
+            tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["yes"] = GenerateTree(
+                data[data[split_feature] <= split_points[split_feature][0]], kind_tag, continuous_feature)
+            tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = GenerateTree(
+                data[data[split_feature] > split_points[split_feature][0]], kind_tag, continuous_feature)
+        return tree
 
 
 def classify(sample, DecisionTree):
@@ -113,9 +153,9 @@ def classify(sample, DecisionTree):
         if "<=" in feature_name:
             feature_value = sample[feature_name.split("<=")[0]]
             if feature_value <= float(feature_name.split("<=")[1][:-1]):
-                return classify(DecisionTree[feature_name]["yes"], sample)
+                return classify(sample, DecisionTree[feature_name]["yes"])
             else:
-                return classify(DecisionTree[feature_name]["no"], sample)
+                return classify(sample, DecisionTree[feature_name]["no"])
         else:
             feature_value = sample[feature_name]
-            return classify(DecisionTree[feature_name][feature_value], sample)
+            return classify(sample, DecisionTree[feature_name][feature_value])
