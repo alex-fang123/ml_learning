@@ -78,7 +78,7 @@ def GenerateTree(data, kind_tag, continuous_feature, pruning=False, train=None, 
     :param data: 原数据集
     :param kind_tag: 标记类别的列
     :param continuous_feature: 连续属性集合
-    :param pruning: 剪枝类型，False不剪枝，Pre预剪枝，Post后剪枝
+    :param pruning: 剪枝类型，False不剪枝，Pre预剪枝
     :return: 决策树，是一个嵌套的字典
     """
     if data[kind_tag].nunique() == 1:  # 如果集合中的样例全部属于同一类，如全部为正例或者全部为反例
@@ -101,6 +101,7 @@ def GenerateTree(data, kind_tag, continuous_feature, pruning=False, train=None, 
             split_regulation[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = \
                 train[train[split_feature] > split_points[split_feature][0]]["好瓜"].value_counts().idxmax()
             temp_tree = split_regulation
+
         test_result = test.apply(classify, axis=1, args=(temp_tree,))
         test_result = pd.concat([test_result, test[kind_tag]], axis=1)
         test_result['result'] = test_result.apply(lambda x: 1 if x[0] == x[kind_tag] else 0, axis=1)
@@ -121,7 +122,30 @@ def GenerateTree(data, kind_tag, continuous_feature, pruning=False, train=None, 
                 tree[split_feature + "<=" + str(split_points[split_feature][0]) + "?"]["no"] = GenerateTree(
                     train[train[split_feature] > split_points[split_feature][0]], kind_tag, continuous_feature)
             return tree
-    else:
+    elif pruning == "post":  # 后剪枝
+        [split_feature, split_points] = get_the_best_split_feature(train, continuous_feature, kind_tag)
+        if data[split_feature].nunique() == 1:
+            return data[kind_tag].value_counts().idxmax()
+        if split_feature not in continuous_feature:
+            tree = {split_feature: {}}
+            split_data = train.groupby(split_feature)
+            for [i, item] in split_data:
+                tree[split_feature][i] = GenerateTree(item.drop(split_feature, axis=1), kind_tag, continuous_feature,
+                                                      pruning='post',
+                                                      train=train[train[split_feature] == i].drop(split_feature,
+                                                                                                  axis=1),
+                                                      test=test[test[split_feature] == i].drop(split_feature, axis=1))
+            not_divide_precision = test.groupby(kind_tag).size()[test[kind_tag].value_counts().idxmax()] / test.shape[0]
+            test_result = test.apply(classify, axis=1, args=(tree,))
+            test_result = pd.concat([test_result, test[kind_tag]], axis=1)
+            test_result['result'] = test_result.apply(lambda x: 1 if x[0] == x[kind_tag] else 0, axis=1)
+            divide_precision = test_result['result'].sum() / test_result.shape[0]
+            if not_divide_precision > divide_precision:
+                return train[kind_tag].value_counts().idxmax()
+            else:
+                return tree
+
+    else:  # 不做剪枝处理
         [split_feature, split_points] = get_the_best_split_feature(data, continuous_feature, kind_tag)
         if data[split_feature].nunique() == 1:
             return data[kind_tag].value_counts().idxmax()
@@ -159,3 +183,43 @@ def classify(sample, DecisionTree):
         else:
             feature_value = sample[feature_name]
             return classify(sample, DecisionTree[feature_name][feature_value])
+
+
+def post_pruning(source_tree, test, my_key, continuous_feature, kind_tag):
+    """
+    后剪枝
+    :param source_tree: 待剪枝的树
+    :param test: 测试集
+    :param my_key: 最近一次划分的属性
+    :param kind_tag: 标记类别的列
+    :return: 经过后剪枝的树
+    """
+    dict_values = source_tree.values()
+    if type(dict_values) == {"是", "否"}:
+        test_tag = test[kind_tag].value_counts().idxmax()
+        not_divide_precision = test.groupby(kind_tag).size()[test_tag] / test.shape[0]
+        if my_key not in continuous_feature:
+            split_regulation = {i: item["好瓜"].value_counts().idxmax() for [i, item] in test.groupby(my_key)}
+            temp_tree = {my_key: split_regulation}
+        else:
+            split_points = my_key.split("<=")[1][:-1]
+            split_regulation = {my_key + "<=" + str(split_points[my_key][0]) + "?": {}}
+            split_regulation[my_key + "<=" + str(split_points[my_key][0]) + "?"]["yes"] = \
+                test[test[my_key] <= split_points[my_key][0]]["好瓜"].value_counts().idxmax()
+            split_regulation[my_key + "<=" + str(split_points[my_key][0]) + "?"]["no"] = \
+                test[test[my_key] > split_points[my_key][0]]["好瓜"].value_counts().idxmax()
+            temp_tree = split_regulation
+        test_result = test.apply(classify, axis=1, args=(temp_tree,))
+        test_result = pd.concat([test_result, test[kind_tag]], axis=1)
+        test_result['result'] = test_result.apply(lambda x: 1 if x[0] == x[kind_tag] else 0, axis=1)
+        divide_precision = test_result['result'].sum() / test_result.shape[0]
+        if not_divide_precision > divide_precision:
+            return test_tag
+        else:
+            return source_tree
+    else:
+        for key in source_tree.keys():
+            if type(source_tree[key]) == dict:
+                source_tree[key] = post_pruning(source_tree[key], test[test[key] == source_tree[key]], key,
+                                                continuous_feature, kind_tag)
+        return source_tree
