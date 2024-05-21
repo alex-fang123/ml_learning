@@ -4,48 +4,58 @@
 
 import numpy as np
 import pandas as pd
+from sklearn import preprocessing
+
+class LinearLayer:
+    """
+    定义好线性层就可以搭积木了
+    """
+    def __init__(self, input_size, output_size):
+        self.weights = np.random.randn(input_size, output_size)
+        self.threshold = np.random.randn(output_size, 1)
+        self.input = None
+        self.output = None
+        self.delta = None
+        self.delta_weights = None
+        self.delta_bias = None
+
+    def forward(self, input):
+        self.input = input
+        self.output = 1 / (1 + np.exp(-(np.dot(input.T, self.weights) - self.threshold.T)))  # Sigmoid
+        self.output = self.output.T
+        return self.output
+
+    def backward(self, dout):
+        """
+        反向传播
+        :param dout: 上一层的输出求偏导的结果
+        :return:
+        """
+        self.delta = dout * self.output * (1 - self.output)
+        self.delta_weights = np.dot(self.input, self.delta.T)
+        dx = np.dot(self.weights, self.delta)
+        self.weights += self.delta_weights
+        self.threshold += -self.delta
+        return dx
+
+class MLP:
+    def __init__(self, input_size, hidden_size, output_size):
+        self.linear1 = LinearLayer(input_size, hidden_size)
+        self.linear2 = LinearLayer(hidden_size, output_size)
+
+    def forward(self, input):
+        return self.linear2.forward(self.linear1.forward(input))
+
+    def backward(self, dout):
+        return self.linear1.backward(self.linear2.backward(dout))
 
 
-# %% 函数定义
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-def forward(x, weight1, weight2, threshold, threshold_output, learning_rate):
-    # 第一层
-    rep_x = np.tile(x, (hidden_layer_size, 1)).T
-    hidden_layer_out = sigmoid(sum(rep_x[:-1, :] * weight1) - threshold.T)
-    hidden_layer_out = hidden_layer_out.T
-
-    # 第二层
-    final_in = np.tile(hidden_layer_out, (output_layer_size, 1))
-    output = sigmoid(sum(final_in * weight2) - threshold_output)
-
-    g = output * (1 - output) * (x[-1] - output)  # 输出层神经元梯度
-    e = hidden_layer_out * (1 - hidden_layer_out) * sum(g * weight2)  # 隐藏层神经元梯度
-    weight2 += pd.DataFrame(learning_rate * g * hidden_layer_out)
-    threshold_output += -learning_rate * g[0]
-    weight1 += pd.DataFrame((learning_rate * np.tile(e, (1, 11)).T * rep_x[:-1, :]))
-    threshold += -learning_rate * e
-    return output - x[-1], weight1, weight2, threshold, threshold_output
-    # return output - x[-1]
-
-# %% 参数设置
-# hidden_layer = 1
-input_layer_size = 11
-hidden_layer_size = 10
-output_layer_size = 1
-learning_rate = 0.1
-threshold = np.random.rand(hidden_layer_size, 1)
-threshold_output = np.random.rand(output_layer_size, 1)
-weight1 = pd.DataFrame(np.random.rand(input_layer_size, hidden_layer_size))
-weight2 = pd.DataFrame(np.random.rand(hidden_layer_size, output_layer_size))
-
-# %% 读取数据
 data = pd.read_csv('./archive/heart_statlog_cleveland_hungary_final.csv')
+label = data['target']
+features = data.drop(columns=['target'])
 
-train = data.iloc[:int(len(data) * 0.8), :]
-test = data.iloc[int(len(data) * 0.8):, :]
-
-#%% 训练
-a = test.apply(lambda x: forward(x, weight1, weight2, threshold, threshold_output, learning_rate), axis=1)
+features = preprocessing.StandardScaler().fit_transform(features)
+input_size = features.shape[1]
+hidden_size = 10
+output_size = 1
+batch_size = 1
