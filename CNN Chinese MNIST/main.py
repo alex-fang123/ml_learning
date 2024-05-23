@@ -41,6 +41,7 @@ class filter:
         return feature_map
 
 
+
 # %% load data
 data = pd.read_csv('archive/chinese_mnist.csv')
 data.drop(columns='character', inplace=True)
