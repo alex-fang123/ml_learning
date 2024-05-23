@@ -15,6 +15,32 @@ def get_tar_jpg(id1, id2, id3):
     return img
 
 
+#%% convolution
+class filter:
+    def __init__(self, width, height, depth, stride, learning_rate=0.01):
+        self.width = width
+        self.height = height
+        self.depth = depth
+        self.stride = stride
+        self.weights = np.random.randn(height, width)
+        self.bias = np.random.randn(1)
+
+    def forward(self, picture):
+        """
+        对给定输入的adarray文件picture做卷积操作
+        :param picture: 图片，adarray
+        :return: feature map
+        """
+        pic_height, pic_width, pic_depth = picture.shape
+        out_height = (pic_height - self.height) // self.stride + 1
+        out_width = (pic_width - self.width) // self.stride + 1
+        feature_map = np.zeros((out_height, out_width))
+        for i in range(out_height):
+            for j in range(out_width):
+                feature_map[i, j] = np.sum(picture[i:i + self.height, j:j + self.width] * self.weights) + self.bias
+        return feature_map
+
+
 # %% load data
 data = pd.read_csv('archive/chinese_mnist.csv')
 data.drop(columns='character', inplace=True)
