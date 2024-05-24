@@ -37,7 +37,8 @@ class Filter:
         pic_height, pic_width, pic_depth = picture.shape
         if self.if_paddle == 1:
             picture = np.pad(picture,
-                             ((0, self.height - pic_height % self.height), (0, self.width - pic_width % self.width)),
+                             ((0, self.width - pic_width % self.width), (0, self.height - pic_height % self.height),
+                              (0, 0)),
                              'constant')
         pic_height, pic_width, pic_depth = picture.shape
         out_height = (pic_height - self.height) // self.stride + 1
@@ -80,7 +81,7 @@ class MaxPool:
                 for j in range(out_width):
                     out[i, j] = np.max(self.image[i * self.stride:i * self.stride + self.pool_size,
                                        j * self.stride:j * self.stride + self.pool_size, d])
-        return out.reshape(1, out_height * out_width * self.depth)
+        return out.reshape(out_height * out_width * self.depth, 1)
 
 
 class LinearLayer:
@@ -126,7 +127,6 @@ class LinearLayer:
 # %% load data
 data = pd.read_csv('archive/chinese_mnist.csv')
 data.drop(columns='character', inplace=True)
-# pic1 = get_tar_jpg(1, 1, 1)
 x_train, x_test, y_train, y_test = train_test_split(data.drop(columns=['value', ]), data['value'], test_size=0.2)
 
 # reset index
@@ -134,3 +134,20 @@ x_train.reset_index(drop=True, inplace=True)
 x_test.reset_index(drop=True, inplace=True)
 y_train.reset_index(drop=True, inplace=True)
 y_test.reset_index(drop=True, inplace=True)
+
+# %% 测试代码
+pic1 = get_tar_jpg(1, 1, 1).reshape(64, 64, 1)
+test_filter = Filter(3, 3, 3, 1, 1)
+b = test_filter.forward(pic1).reshape(64, 64, 1)
+# Image.fromarray(b.reshape(64,64)).show()
+test_maxpool = MaxPool(b, 2, 2)
+c = test_maxpool.forward()
+d = Softmax(c).forward()
+# np.count_nonzero(c == d)
+
+# 查看data的value有几种类型
+label_dict = data['value'].unique().reshape(-1, 1)
+item_num = label_dict.shape[0]
+label_dict = np.concatenate((np.array(range(1, item_num + 1)).reshape(-1,1),label_dict), axis=1)
+full_connect = LinearLayer(1024, 14)
+full_connect.forward(d)
