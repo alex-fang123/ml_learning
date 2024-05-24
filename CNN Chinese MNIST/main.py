@@ -150,4 +150,7 @@ label_dict = data['value'].unique().reshape(-1, 1)
 item_num = label_dict.shape[0]
 label_dict = np.concatenate((np.array(range(1, item_num + 1)).reshape(-1,1),label_dict), axis=1)
 full_connect = LinearLayer(1024, 14)
-full_connect.forward(d)
+full_connect.forward(c)
+
+# 检查c的非零元素个数
+np.count_nonzero(c)
