@@ -158,20 +158,18 @@ d = Softmax(c).forward()
 # 查看data的value有几种类型
 label_dict = data['value'].unique().reshape(-1, 1)
 item_num = label_dict.shape[0]
-label_dict = np.concatenate((np.array(range(1, item_num + 1)).reshape(-1, 1), label_dict), axis=1)
-full_connect = LinearLayer(1024, 14)
+full_connect = LinearLayer(1024, 15)
 
-pre_out= full_connect.forward(d)
+pre_out = full_connect.forward(d)
 
 # 检查c的非零元素个数
 # np.count_nonzero(c)
 true_value = \
 data[(data["suite_id"] == tar_code[0]) & (data['sample_id'] == tar_code[1]) & (data['code'] == tar_code[2])][
     'value'].iloc[0]
-tar_out = (label_dict[:, 1] == true_value).reshape(-1, 1)
+tar_out = (label_dict[:, 0] == true_value).reshape(-1, 1)
 
 total_loss = 0
 # 计算损失
 total_loss += loss(tar_out, pre_out)
-
-
+final_out = label_dict[pre_out.argmax()][1]  # 模型最后的预测结果
