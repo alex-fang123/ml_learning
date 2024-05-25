@@ -123,6 +123,15 @@ class LinearLayer:
         self.delta_weights = np.zeros(np.shape(self.weights))
         return self.weights, self.threshold
 
+def loss(y_true, y_pred):
+    """
+    交叉熵损失函数（Cross-Entropy Loss）
+    :param y_true: 真实值
+    :param y_pred: 模型输出值
+    :return: 损失值大小
+    """
+    return -np.sum(y_true * np.log(y_pred))
+
 
 # %% load data
 data = pd.read_csv('archive/chinese_mnist.csv')
@@ -136,7 +145,8 @@ y_train.reset_index(drop=True, inplace=True)
 y_test.reset_index(drop=True, inplace=True)
 
 # %% 测试代码
-pic1 = get_tar_jpg(1, 1, 1).reshape(64, 64, 1)
+tar_code = [1, 1, 1]
+pic1 = get_tar_jpg(tar_code[0], tar_code[1], tar_code[2]).reshape(64, 64, 1)
 test_filter = Filter(3, 3, 3, 1, 1)
 b = test_filter.forward(pic1).reshape(64, 64, 1)
 # Image.fromarray(b.reshape(64,64)).show()
@@ -148,9 +158,20 @@ d = Softmax(c).forward()
 # 查看data的value有几种类型
 label_dict = data['value'].unique().reshape(-1, 1)
 item_num = label_dict.shape[0]
-label_dict = np.concatenate((np.array(range(1, item_num + 1)).reshape(-1,1),label_dict), axis=1)
+label_dict = np.concatenate((np.array(range(1, item_num + 1)).reshape(-1, 1), label_dict), axis=1)
 full_connect = LinearLayer(1024, 14)
-full_connect.forward(c)
+
+pre_out= full_connect.forward(d)
 
 # 检查c的非零元素个数
-np.count_nonzero(c)
+# np.count_nonzero(c)
+true_value = \
+data[(data["suite_id"] == tar_code[0]) & (data['sample_id'] == tar_code[1]) & (data['code'] == tar_code[2])][
+    'value'].iloc[0]
+tar_out = (label_dict[:, 1] == true_value).reshape(-1, 1)
+
+total_loss = 0
+# 计算损失
+total_loss += loss(tar_out, pre_out)
+
+
