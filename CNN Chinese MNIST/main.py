@@ -72,8 +72,8 @@ class Softmax:
         self.image = image
 
     def forward(self):
-        temp = np.sum(np.sum(np.exp(self.image), axis=1), axis=1)
-        return (np.exp(self.image) / temp[:, np.newaxis, np.newaxis]).reshape(-1, 1)
+        temp = np.sum(np.sum(np.exp(self.image), axis=1), axis=1)  # 对输出按照单个Filter的值求和
+        return (np.exp(self.image) / temp[:, np.newaxis, np.newaxis]).reshape(-1, 1)  # softmax
 
     def backward(self, dout):
         dout = dout.reshape(np.shape(self.image))
@@ -85,19 +85,19 @@ class Softmax:
 class MaxPool:
     def __init__(self, image, pool_size, stride):
         self.image = image
-        self.height, self.width, self.depth = image.shape
+        self.depth, self.height, self.width = image.shape
         self.pool_size = pool_size
         self.stride = stride
 
     def forward(self):
         out_height = (self.height - self.pool_size) // self.stride + 1
         out_width = (self.width - self.pool_size) // self.stride + 1
-        out = np.zeros((out_height, out_width, self.depth))
+        out = np.zeros((self.depth, out_height, out_width))
         for d in range(self.depth):
             for i in range(out_height):
                 for j in range(out_width):
-                    out[i, j] = np.max(self.image[i * self.stride:i * self.stride + self.pool_size,
-                                       j * self.stride:j * self.stride + self.pool_size, d])
+                    out[d, i, j] = np.max(self.image[d, i * self.stride:i * self.stride + self.pool_size,
+                                       j * self.stride:j * self.stride + self.pool_size])
         return out
 
 
