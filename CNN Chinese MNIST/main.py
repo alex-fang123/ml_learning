@@ -16,16 +16,17 @@ def get_tar_jpg(id1, id2, id3):
     return img
 
 
-# %% convolution object
+# %% object
 class Filter:
     def __init__(self, width, height, depth, stride, if_paddle, learning_rate=0.01):
+
         self.width = width
         self.height = height
         self.depth = depth
         self.stride = stride
         self.if_paddle = if_paddle  # 这里设计的补0主要是针对stride大于1时带来边缘信息没有卷积到的情况，参考forward函数的第一个if
-        self.weights = np.random.randn(height, width)
-        # self.bias = np.random.randn(1)
+        self.weights = np.random.randn(height, width, depth)
+        self.dw = np.zeros_like(self.weights)
         self.learning_rate = learning_rate
 
     def forward(self, picture):
@@ -40,6 +41,7 @@ class Filter:
                              ((0, self.width - pic_width % self.width), (0, self.height - pic_height % self.height),
                               (0, 0)),
                              'constant')
+        self.picture = picture
         pic_height, pic_width, pic_depth = picture.shape
         out_height = (pic_height - self.height) // self.stride + 1
         out_width = (pic_width - self.width) // self.stride + 1
@@ -47,8 +49,27 @@ class Filter:
         for i in range(out_height):
             for j in range(out_width):
                 # relu
-                feature_map[i, j] = max(np.sum(picture[i:i + self.height, j:j + self.width] * self.weights), 0)
+                feature_map[i, j] = max(np.sum(picture[i * self.stride:i * self.stride + self.height,
+                                               j * self.stride:j * self.stride + self.width, :] * self.weights), 0)
         return feature_map
+
+    def backward(self, dout):
+        """
+        反向传播
+        :param dout: 上一层的输出求偏导的结果
+        :return:
+        """
+        self.dout = dout[:,:,np.newaxis]
+        for i in range(0, self.height, self.stride):
+            for j in range(0, self.width, self.stride):
+                self.dw += self.dout[i:i + 1, j:j + 1, :] * self.picture[
+                                                                i * self.stride:i * self.stride + 1,
+                                                                j * self.stride:j * self.stride + 1, :]
+
+    def update(self):
+        self.weights += self.learning_rate * self.dw
+        self.dw = np.zeros_like(self.weights)
+        return self.weights
 
 
 class ConvolutionLayer:
@@ -66,6 +87,18 @@ class ConvolutionLayer:
         out4 = self.conv4.forward(picture)
         return np.array((out1, out2, out3, out4))
 
+    def backward(self, dout):
+        self.conv1.backward(dout[0])
+        self.conv2.backward(dout[1])
+        self.conv3.backward(dout[2])
+        self.conv4.backward(dout[3])
+
+    def update(self):
+        self.conv1.update()
+        self.conv2.update()
+        self.conv3.update()
+        self.conv4.update()
+
 
 class Softmax:
     def __init__(self, image):
@@ -73,32 +106,49 @@ class Softmax:
 
     def forward(self):
         temp = np.sum(np.sum(np.exp(self.image), axis=1), axis=1)  # 对输出按照单个Filter的值求和
-        return (np.exp(self.image) / temp[:, np.newaxis, np.newaxis]).reshape(-1, 1)  # softmax
+        self.out = np.nan_to_num(np.exp(self.image) / temp[:, np.newaxis, np.newaxis])
+        return self.out.reshape(-1, 1)  # softmax
 
     def backward(self, dout):
-        dout = dout.reshape(np.shape(self.image))
-        temp = np.sum(np.sum(dout, axis=1), axis=1)
+        self.dout = dout.reshape(np.shape(self.image))
+        temp = np.sum(np.sum(self.dout, axis=1), axis=1)
         temp = temp[:, np.newaxis, np.newaxis]
-        return (dout * temp - dout ** 2) / temp ** 2
+        return (self.dout * temp - self.dout ** 2) / temp ** 2
 
 
 class MaxPool:
     def __init__(self, image, pool_size, stride):
+        self.out = None
+        self.out_index = None
         self.image = image
         self.depth, self.height, self.width = image.shape
         self.pool_size = pool_size
         self.stride = stride
 
     def forward(self):
-        out_height = (self.height - self.pool_size) // self.stride + 1
-        out_width = (self.width - self.pool_size) // self.stride + 1
-        out = np.zeros((self.depth, out_height, out_width))
+        self.out_height = (self.height - self.pool_size) // self.stride + 1
+        self.out_width = (self.width - self.pool_size) // self.stride + 1
+        out = np.zeros((self.depth, self.out_height, self.out_width))
+        out_index = [[[0, ] * self.out_width] * self.out_height] * self.depth  # 用于记录最大值的位置
         for d in range(self.depth):
-            for i in range(out_height):
-                for j in range(out_width):
-                    out[d, i, j] = np.max(self.image[d, i * self.stride:i * self.stride + self.pool_size,
-                                       j * self.stride:j * self.stride + self.pool_size])
+            for i in range(self.out_height):
+                for j in range(self.out_width):
+                    temp_matrix = self.image[d, i * self.stride:i * self.stride + self.pool_size,
+                                  j * self.stride:j * self.stride + self.pool_size]  # 选取pool_size大小的矩阵，二维的
+                    out[d, i, j] = np.max(temp_matrix)
+                    out_index[d][i][j] = np.unravel_index(np.argmax(temp_matrix, axis=None), temp_matrix.shape)
+        self.out = out
+        self.out_index = out_index
         return out
+
+    def backward(self, dout):
+        dx = np.zeros_like(self.image)
+        for d in range(self.depth):
+            for i in range(self.out_height):
+                for j in range(self.out_width):
+                    index = self.out_index[d][i][j]
+                    dx[d, i * self.stride + index[0], j * self.stride + index[1]] = dout[d, i, j]
+        return dx
 
 
 class LinearLayer:
@@ -109,7 +159,7 @@ class LinearLayer:
     def __init__(self, input_size, output_size):
         self.weights = np.random.randn(input_size, output_size)
         self.threshold = np.random.randn(output_size, 1)
-        print(self.threshold)
+        # print(self.threshold)
         self.input = None
         self.output = None
         self.delta = np.zeros(np.shape(self.threshold))
@@ -163,14 +213,15 @@ y_train.reset_index(drop=True, inplace=True)
 y_test.reset_index(drop=True, inplace=True)
 
 # %% 测试代码
-tar_code = [1, 1, 1]
+tar_code = [1, 2, 1]
 pic1 = get_tar_jpg(tar_code[0], tar_code[1], tar_code[2]).reshape(64, 64, 1)
 test_con = ConvolutionLayer(3, 3, 1, 1, 1)
 b = test_con.forward(pic1)
 # Image.fromarray(b.reshape(64,64)).show()
 test_maxpool = MaxPool(b, 2, 2)
 c = test_maxpool.forward()
-d = Softmax(c).forward()
+test_softmax = Softmax(c)
+d = test_softmax.forward()
 # np.count_nonzero(c == d)
 
 # 查看data的value有几种类型
@@ -193,3 +244,6 @@ total_loss += loss(tar_out, pre_out)
 final_out = label_dict[pre_out.argmax()][0]  # 模型最后的预测结果
 
 fc_back = full_connect.backward(tar_out)
+softmax_back = test_softmax.backward(fc_back)
+maxpool_back = test_maxpool.backward(softmax_back)
+convolution_back = test_con.backward(maxpool_back)
